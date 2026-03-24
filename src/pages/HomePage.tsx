@@ -240,8 +240,8 @@ function AppCard({ app, onTap }: { app: AppMetadata; onTap: () => void }) {
     >
       <div className="text-3xl mb-2">{app.icon || '📱'}</div>
       <span className="text-sm font-medium truncate w-full text-center">{app.name}</span>
-      <span className="text-xs text-text-dim mt-0.5">
-        {app.status === 'ready' ? 'Ready' : app.status === 'generating' ? 'Building...' : app.status === 'error' ? 'Error' : 'Draft'}
+      <span className={`text-xs mt-0.5 ${app.status === 'error' ? 'text-danger' : 'text-text-dim'}`}>
+        {app.status === 'ready' ? 'Ready' : app.status === 'generating' ? 'Building...' : app.status === 'error' ? (app.errorMessage ? app.errorMessage.slice(0, 40) : 'Error') : 'Draft'}
       </span>
     </motion.button>
   );

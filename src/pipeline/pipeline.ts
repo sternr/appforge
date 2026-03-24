@@ -594,7 +594,10 @@ export async function runGeneration(
       });
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
+    const currentPhase = usePipelineStore.getState().phase;
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    const message = `[${currentPhase}] ${rawMessage}`;
+    console.error('Pipeline error:', message, err);
     pipeline.setError(message);
 
     const errorApp: AppMetadata = {
@@ -786,7 +789,10 @@ export async function runRefinement(
       });
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
+    const currentPhase = usePipelineStore.getState().phase;
+    const rawMessage = err instanceof Error ? err.message : String(err);
+    const message = `[${currentPhase}] ${rawMessage}`;
+    console.error('Pipeline error:', message, err);
     pipeline.setError(message);
 
     const errorApp: AppMetadata = {
