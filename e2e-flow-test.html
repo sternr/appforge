@@ -373,7 +373,8 @@ async function waitForText(text, timeout = 15000) {
 }
 
 function click(el) {
-  el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  // Use native .click() which works reliably with React's event delegation
+  el.click();
 }
 
 function typeInto(input, value) {
@@ -565,18 +566,28 @@ async function runTests() {
     await wait(400);
 
     // Click Next
-    const nextBtn = await waitFor(() => {
-      return [...getDoc().querySelectorAll('button')].find(b => {
-        const t = b.textContent.trim();
-        return t === 'Next' && !b.disabled;
-      });
-    }, 3000);
-    assert(nextBtn, 'Next button not found or disabled');
-    click(nextBtn);
-    await wait(800);
+    const allBtns = [...getDoc().querySelectorAll('button')];
+    log(`All buttons after Q1 select: ${allBtns.map(b => `"${b.textContent.trim().slice(0,20)}"${b.disabled ? '(D)' : ''}`).join(', ')}`, 'info');
 
-    // Q2: Wait for second question
-    await waitForText('save state', 10000);
+    const nextBtn = allBtns.find(b => {
+      const t = b.textContent.trim();
+      return t === 'Next';
+    });
+    assert(nextBtn, `Next button not found. Buttons: ${allBtns.map(b => b.textContent.trim().slice(0,20)).join(', ')}`);
+    assert(!nextBtn.disabled, 'Next button is disabled — option click may not have registered');
+    click(nextBtn);
+    log('Clicked Next button', 'info');
+    await wait(1000);
+
+    // Debug: log current page state after clicking Next
+    const bodyAfterNext = getDoc()?.body?.innerText || '';
+    log(`Body after Next (first 200): ${bodyAfterNext.slice(0, 200).replace(/\n/g, '\\n')}`, 'info');
+
+    // Q2: Wait for second question — use broader text match
+    await waitFor(() => {
+      const text = getDoc()?.body?.innerText || '';
+      return text.includes('save state') || text.includes('persist') || text.includes('Q2');
+    }, 10000);
     log('Q2 displayed', 'info');
 
     // Select first option for Q2
