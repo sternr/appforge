@@ -209,7 +209,29 @@ function setMeta(name: string, content: string) {
   meta.content = content;
 }
 
-function updateManifest(name: string, _icon: string, description: string) {
+function emojiToIconUrl(emoji: string, size: number): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  // Dark background for contrast
+  ctx.fillStyle = '#1e293b';
+  ctx.beginPath();
+  ctx.roundRect(0, 0, size, size, size * 0.2);
+  ctx.fill();
+  // Draw emoji centered
+  ctx.font = `${size * 0.6}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(emoji, size / 2, size / 2 + size * 0.05);
+  return canvas.toDataURL('image/png');
+}
+
+function updateManifest(name: string, icon: string, description: string) {
+  const emoji = icon || '📱';
+  const icon192 = emojiToIconUrl(emoji, 192);
+  const icon512 = emojiToIconUrl(emoji, 512);
+
   const manifest = {
     name,
     short_name: name.slice(0, 12),
@@ -218,7 +240,10 @@ function updateManifest(name: string, _icon: string, description: string) {
     display: 'standalone',
     background_color: '#0f172a',
     theme_color: '#6366f1',
-    icons: [],
+    icons: [
+      { src: icon192, sizes: '192x192', type: 'image/png' },
+      { src: icon512, sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+    ],
   };
   const manifestJson = JSON.stringify(manifest);
   const manifestBlob = new Blob([manifestJson], { type: 'application/manifest+json' });
@@ -229,4 +254,13 @@ function updateManifest(name: string, _icon: string, description: string) {
   link.rel = 'manifest';
   link.href = manifestUrl;
   document.head.appendChild(link);
+
+  // Also set apple-touch-icon for iOS
+  let appleTouchIcon = document.querySelector('link[rel="apple-touch-icon"]') as HTMLLinkElement | null;
+  if (!appleTouchIcon) {
+    appleTouchIcon = document.createElement('link');
+    appleTouchIcon.rel = 'apple-touch-icon';
+    document.head.appendChild(appleTouchIcon);
+  }
+  appleTouchIcon.href = icon192;
 }

@@ -89,7 +89,7 @@ export default function NewAppPage() {
       // Normal flow: create/update app then clarify → generate
       const app: AppMetadata = {
         id: appId,
-        name: prompt.slice(0, 30) + (prompt.length > 30 ? '...' : ''),
+        name: 'New App',
         icon: '📱',
         prompt: prompt.trim(),
         clarifications: [],
