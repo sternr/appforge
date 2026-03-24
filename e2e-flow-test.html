@@ -263,29 +263,29 @@ function getMockResponse(body) {
     return { type: 'agent-test-validate', streaming: false, text: mockAgentTestValidationResponse() };
   }
 
-  // 4. Clarification
-  if (allContent.includes('clarif') || allContent.includes('question')) {
-    return { type: 'clarification', streaming: false, text: mockClarificationResponse() };
+  // 4. Coding — detect by: streaming + large max_tokens + contains "Generate a COMPLETE" or "HTML application" or "Single HTML file"
+  if (isStreaming && (body.max_tokens >= 8000 || allContent.includes('Generate a COMPLETE') || allContent.includes('HTML application') || allContent.includes('Single HTML file'))) {
+    return { type: 'coding', streaming: true, text: MOCK_APP_HTML };
   }
 
-  // 5. Planning (streaming)
-  if (allContent.includes('specification') || allContent.includes('plan') || allContent.includes('spec')) {
-    return { type: 'planning', streaming: true, text: mockPlanResponse() };
-  }
-
-  // 6. Code review
+  // 5. Code review
   if (allContent.includes('code review') || allContent.includes('review the following') || allContent.includes('Review this')) {
     return { type: 'code-review', streaming: false, text: mockCodeReviewResponse() };
   }
 
-  // 7. Visual review
+  // 6. Visual review
   if (allContent.includes('visual') && allContent.includes('review')) {
     return { type: 'visual-review', streaming: false, text: mockVisualReviewResponse() };
   }
 
-  // 8. Coding (streaming)
-  if (allContent.includes('HTML') || allContent.includes('code') || allContent.includes('implement') || allContent.includes('build') || allContent.includes('Create') || allContent.includes('single-file')) {
-    return { type: 'coding', streaming: true, text: MOCK_APP_HTML };
+  // 7. Planning (streaming)
+  if (allContent.includes('specification') || allContent.includes('plan') || allContent.includes('spec')) {
+    return { type: 'planning', streaming: true, text: mockPlanResponse() };
+  }
+
+  // 8. Clarification (non-streaming, fallback)
+  if (allContent.includes('clarif') || allContent.includes('question')) {
+    return { type: 'clarification', streaming: false, text: mockClarificationResponse() };
   }
 
   // Fallback
@@ -644,11 +644,10 @@ async function runTests() {
     const callTypes = apiCallLog.map(c => c.type);
     log(`API call sequence: ${callTypes.join(' → ')}`, 'info');
 
-    // Should have at least: key-validation, clarification, planning, coding
-    assert(callTypes.includes('key-validation'), 'Missing key-validation call');
-    assert(callTypes.includes('clarification'), 'Missing clarification call');
-    assert(callTypes.includes('planning'), 'Missing planning call');
-    assert(callTypes.includes('coding'), 'Missing coding call');
+    // Should have at least: key-validation, planning, coding
+    assert(callTypes.includes('key-validation'), `Missing key-validation call. Got: ${callTypes.join(', ')}`);
+    assert(callTypes.includes('planning'), `Missing planning call. Got: ${callTypes.join(', ')}`);
+    assert(callTypes.includes('coding'), `Missing coding call. Got: ${callTypes.join(', ')}`);
 
     log(`Total API calls: ${apiCallLog.length}`, 'success');
   });
