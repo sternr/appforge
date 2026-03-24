@@ -300,6 +300,13 @@ function installFetchMockInIframe(iframeWindow) {
   const origFetch = iframeWindow.fetch.bind(iframeWindow);
   apiCallLog = [];
 
+  // Also capture console.error from iframe for debugging
+  const origConsoleError = iframeWindow.console.error;
+  iframeWindow.console.error = function(...args) {
+    log(`[iframe] console.error: ${args.map(a => typeof a === 'object' ? JSON.stringify(a).substring(0, 200) : String(a).substring(0, 200)).join(' ')}`, 'warn');
+    origConsoleError.apply(iframeWindow.console, args);
+  };
+
   iframeWindow.fetch = async function(url, opts) {
     const urlStr = typeof url === 'string' ? url : url?.url || '';
 
@@ -307,11 +314,18 @@ function installFetchMockInIframe(iframeWindow) {
       return origFetch(url, opts);
     }
 
-    const body = opts?.body ? JSON.parse(opts.body) : {};
+    let body;
+    try {
+      body = opts?.body ? JSON.parse(opts.body) : {};
+    } catch (e) {
+      log(`[iframe] API mock: failed to parse body: ${e.message}`, 'error');
+      body = {};
+    }
     const mock = getMockResponse(body);
+    const isStreamReq = body.stream === true;
 
     apiCallLog.push({ type: mock.type, streaming: mock.streaming, timestamp: Date.now() });
-    log(`[iframe] API mock: ${mock.type} (${mock.streaming ? 'stream' : 'non-stream'})`, 'info');
+    log(`[iframe] API mock: ${mock.type} (${mock.streaming ? 'stream' : 'non-stream'}) [req.stream=${isStreamReq}, max_tokens=${body.max_tokens}]`, 'info');
 
     // Small simulated delay
     await new Promise(r => setTimeout(r, 30));
