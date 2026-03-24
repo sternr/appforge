@@ -88,13 +88,18 @@ if [ -f dist/manifest.webmanifest ]; then
   check "Manifest has icon entries (found $ICON_COUNT, need >=2)" "$([ "$ICON_COUNT" -ge 2 ] && echo 1 || echo 0)"
 fi
 
-# 5. Sanity test page
+# 5. Test pages
 echo ""
-echo "5. Sanity test page:"
+echo "5. Test pages:"
 if [ -f dist/sanity.html ]; then
   check "sanity.html present" 1
 else
   check "sanity.html present (optional but recommended)" 0
+fi
+if [ -f dist/e2e-test.html ]; then
+  check "e2e-test.html present" 1
+else
+  check "e2e-test.html present (optional but recommended)" 0
 fi
 
 # Summary

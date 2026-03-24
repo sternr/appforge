@@ -3,6 +3,10 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useSettingsStore } from './stores/settingsStore.js';
 import { ToastProvider } from './components/ui/Toast.js';
 import { useAutoUpdate } from './hooks/useAutoUpdate.js';
+import { initInstallListener } from './stores/installStore.js';
+
+// Capture beforeinstallprompt as early as possible — before React renders
+initInstallListener();
 import OnboardingPage from './pages/OnboardingPage.js';
 import HomePage from './pages/HomePage.js';
 import NewAppPage from './pages/NewAppPage.js';

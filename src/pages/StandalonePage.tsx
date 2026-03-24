@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { getAppCode, getApp } from '../db/database.js';
+import { useInstallStore } from '../stores/installStore.js';
 
 /**
  * StandalonePage renders a generated app fullscreen with NO AppForge chrome.
- * Shows a floating "Add to Home Screen" banner that:
- * - On Android Chrome: intercepts beforeinstallprompt to trigger native install
- * - On iOS Safari: shows instructions to use Share → Add to Home Screen
- * - On Desktop: intercepts beforeinstallprompt or shows instructions
+ * Used for:
+ * 1. "Add to Home Screen" flow — user opens this in a new tab, then uses
+ *    browser menu to add to homescreen (or we trigger beforeinstallprompt).
+ * 2. Running an installed app in standalone mode.
  *
  * Route: #/standalone/:appId
  */
@@ -20,17 +21,9 @@ export default function StandalonePage() {
   const [appIcon, setAppIcon] = useState('');
   const [error, setError] = useState('');
   const [showBanner, setShowBanner] = useState(true);
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
-  // Capture the beforeinstallprompt event (Android Chrome / Desktop Chrome & Edge)
-  useEffect(() => {
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, []);
+  // Use global install store
+  const deferredPrompt = useInstallStore((s) => s.deferredPrompt);
 
   useEffect(() => {
     if (!appId) return;
@@ -70,15 +63,11 @@ export default function StandalonePage() {
   }, [appId]);
 
   const handleNativeInstall = useCallback(async () => {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      const result = await deferredPrompt.userChoice;
-      if (result.outcome === 'accepted') {
-        setShowBanner(false);
-      }
-      setDeferredPrompt(null);
+    const accepted = await useInstallStore.getState().triggerInstall();
+    if (accepted) {
+      setShowBanner(false);
     }
-  }, [deferredPrompt]);
+  }, []);
 
   if (error) {
     return (
@@ -158,7 +147,7 @@ export default function StandalonePage() {
 
           {/* Install action */}
           {deferredPrompt ? (
-            /* Android Chrome / Desktop — native install prompt available */
+            /* Native install prompt available */
             <button
               onClick={handleNativeInstall}
               style={{
@@ -170,7 +159,6 @@ export default function StandalonePage() {
               Install App
             </button>
           ) : isIOS ? (
-            /* iOS Safari — show instructions */
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#e2e8f0', fontSize: '14px' }}>
               <span>Tap</span>
               <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', background: 'rgba(99,102,241,0.2)', borderRadius: '6px' }}>
@@ -183,12 +171,10 @@ export default function StandalonePage() {
               <span>then <strong>"Add to Home Screen"</strong></span>
             </div>
           ) : isAndroid ? (
-            /* Android without beforeinstallprompt — show instructions */
             <div style={{ color: '#e2e8f0', fontSize: '14px' }}>
               Tap <strong>⋮</strong> (menu) then <strong>"Add to Home screen"</strong>
             </div>
           ) : (
-            /* Desktop fallback */
             <div style={{ color: '#e2e8f0', fontSize: '14px' }}>
               Use your browser menu to <strong>"Install app"</strong> or <strong>"Create shortcut"</strong>
             </div>
@@ -214,12 +200,10 @@ function emojiToIconUrl(emoji: string, size: number): string {
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
-  // Dark background for contrast
   ctx.fillStyle = '#1e293b';
   ctx.beginPath();
   ctx.roundRect(0, 0, size, size, size * 0.2);
   ctx.fill();
-  // Draw emoji centered
   ctx.font = `${size * 0.6}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';

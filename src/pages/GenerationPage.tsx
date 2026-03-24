@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { usePipelineStore } from '../stores/pipelineStore.js';
 import { useSettingsStore } from '../stores/settingsStore.js';
 import { useAppStore } from '../stores/appStore.js';
+import { useInstallStore } from '../stores/installStore.js';
 import { runGeneration, runRefinement } from '../pipeline/pipeline.js';
 import { useToast } from '../components/ui/Toast.js';
 import Button from '../components/ui/Button.js';
@@ -165,11 +166,22 @@ export default function GenerationPage() {
   };
 
   const handleInstall = async () => {
+    const { deferredPrompt, triggerInstall } = useInstallStore.getState();
     const appStore = useAppStore.getState();
     const currentApp = await appStore.getApp(appId!);
-    if (currentApp) {
+
+    if (deferredPrompt) {
+      const accepted = await triggerInstall();
+      if (accepted && currentApp) {
+        await appStore.updateApp({ ...currentApp, installedOnHomescreen: true, updatedAt: Date.now() });
+        toast('App installed!', 'success');
+      }
+    } else if (currentApp) {
+      // No native prompt — open standalone page for manual add-to-homescreen
+      const baseUrl = window.location.href.split('#')[0];
+      window.open(`${baseUrl}#/standalone/${appId}`, '_blank', 'noopener');
       await appStore.updateApp({ ...currentApp, installedOnHomescreen: true, updatedAt: Date.now() });
-      toast('App installed to homescreen!', 'success');
+      toast('Opened standalone page — use browser menu to install', 'info');
     }
     navigate('/', { replace: true });
   };

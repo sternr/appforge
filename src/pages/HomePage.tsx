@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAppStore } from '../stores/appStore.js';
+import { useInstallStore } from '../stores/installStore.js';
 import BottomSheet from '../components/ui/BottomSheet.js';
 import Button from '../components/ui/Button.js';
 import { useToast } from '../components/ui/Toast.js';
@@ -28,27 +29,27 @@ export default function HomePage() {
   };
 
   const handleInstall = async (app: AppMetadata) => {
-    // Build the standalone URL for this specific app.
-    // This is a real, persistent URL within AppForge that renders the app
-    // fullscreen with PWA meta tags — perfect for "Add to Home Screen".
-    const baseUrl = window.location.href.split('#')[0];
-    const standaloneUrl = `${baseUrl}#/standalone/${app.id}`;
+    const { deferredPrompt, triggerInstall } = useInstallStore.getState();
 
-    // Open in a new tab using an <a> element to avoid popup blockers
-    const a = document.createElement('a');
-    a.href = standaloneUrl;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-
-    // Mark as installed in our db
-    await updateApp({ ...app, installedOnHomescreen: true, updatedAt: Date.now() });
-    setSelectedApp(null);
-
-    // Show the install guide
-    setShowInstallGuide(true);
+    if (deferredPrompt) {
+      // Native install prompt available — use it directly
+      const accepted = await triggerInstall();
+      if (accepted) {
+        await updateApp({ ...app, installedOnHomescreen: true, updatedAt: Date.now() });
+        setSelectedApp(null);
+        toast(`"${app.name}" installed!`, 'success');
+      } else {
+        toast('Install cancelled', 'info');
+      }
+    } else {
+      // No native prompt — open standalone page for manual "Add to Home Screen"
+      const baseUrl = window.location.href.split('#')[0];
+      const standaloneUrl = `${baseUrl}#/standalone/${app.id}`;
+      window.open(standaloneUrl, '_blank', 'noopener');
+      await updateApp({ ...app, installedOnHomescreen: true, updatedAt: Date.now() });
+      setSelectedApp(null);
+      setShowInstallGuide(true);
+    }
   };
 
   const handleUninstall = async (app: AppMetadata) => {
