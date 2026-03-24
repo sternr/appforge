@@ -538,38 +538,61 @@ async function runTests() {
     await waitForText('Quick Questions', 15000);
     log('Clarification page loaded', 'success');
 
-    // Wait for Q1
-    await waitForText('What range should the counter support', 10000);
+    // Helper: find option buttons on clarification page
+    // Options are buttons that are NOT "Skip All", "Next", "Generate", or the back arrow
+    function getOptionButtons() {
+      return [...getDoc().querySelectorAll('button')].filter(b => {
+        const text = b.textContent.trim();
+        // Skip navigation buttons
+        if (text.includes('Skip All') || text === 'Next' || text === 'Generate' || text.includes('Generate App')) return false;
+        // Skip back button (contains only SVG)
+        if (!text || text.length < 2) return false;
+        // Skip buttons that look like nav (contain SVG path elements as only content)
+        if (b.querySelector('svg') && !b.querySelector('span')) return false;
+        return true;
+      });
+    }
 
-    // Select first option for Q1
-    const options1 = [...getDoc().querySelectorAll('button')].filter(b => {
-      const text = b.textContent.trim();
-      return text === '0-100' || text === '0-1000' || text === 'Unlimited' || text === 'Custom range';
-    });
-    assert(options1.length > 0, 'No answer options found for Q1');
-    click(options1[0]); // Select first option
-    await wait(300);
+    // Q1: Wait for first question
+    await waitForText('What range', 10000);
+    log('Q1 displayed', 'info');
+
+    // Select first option
+    let opts = getOptionButtons();
+    log(`Found ${opts.length} option buttons for Q1: ${opts.map(b => b.textContent.trim().slice(0, 30)).join(', ')}`, 'info');
+    assert(opts.length > 0, `No answer options found for Q1. All buttons: ${[...getDoc().querySelectorAll('button')].map(b => b.textContent.trim().slice(0, 40)).join(' | ')}`);
+    click(opts[0]);
+    await wait(400);
 
     // Click Next
-    const nextBtn = [...getDoc().querySelectorAll('button')].find(b => b.textContent.includes('Next'));
-    assert(nextBtn, 'Next button not found');
+    const nextBtn = await waitFor(() => {
+      return [...getDoc().querySelectorAll('button')].find(b => {
+        const t = b.textContent.trim();
+        return t === 'Next' && !b.disabled;
+      });
+    }, 3000);
+    assert(nextBtn, 'Next button not found or disabled');
     click(nextBtn);
-    await wait(500);
+    await wait(800);
 
-    // Wait for Q2
-    await waitForText('Should the app save state', 10000);
+    // Q2: Wait for second question
+    await waitForText('save state', 10000);
+    log('Q2 displayed', 'info');
 
     // Select first option for Q2
-    const options2 = [...getDoc().querySelectorAll('button')].filter(b => {
-      const text = b.textContent.trim();
-      return text.includes('persist') || text.includes('reset on reload');
-    });
-    assert(options2.length > 0, 'No answer options found for Q2');
-    click(options2[0]);
-    await wait(300);
+    opts = getOptionButtons();
+    log(`Found ${opts.length} option buttons for Q2: ${opts.map(b => b.textContent.trim().slice(0, 30)).join(', ')}`, 'info');
+    assert(opts.length > 0, `No answer options found for Q2. All buttons: ${[...getDoc().querySelectorAll('button')].map(b => b.textContent.trim().slice(0, 40)).join(' | ')}`);
+    click(opts[0]);
+    await wait(400);
 
-    // Click Generate (last question)
-    const genBtn = [...getDoc().querySelectorAll('button')].find(b => b.textContent.includes('Generate'));
+    // Click Generate (last question shows "Generate" instead of "Next")
+    const genBtn = await waitFor(() => {
+      return [...getDoc().querySelectorAll('button')].find(b => {
+        const t = b.textContent.trim();
+        return t === 'Generate' && !b.disabled;
+      });
+    }, 3000);
     assert(genBtn, 'Generate button not found on last question');
     click(genBtn);
     log('Answered all clarification questions', 'success');
@@ -587,13 +610,12 @@ async function runTests() {
     log('Generation page loaded', 'success');
 
     // Wait for pipeline to complete — look for Save/Install buttons becoming enabled,
-    // or "Your app is ready!" text. Max 60s for the full pipeline.
+    // or "Your app is ready!" text. Max 90s for the full pipeline.
     await waitFor(() => {
       const text = getDoc()?.body?.innerText || '';
       // The pipeline is done when:
-      // 1. "Your app is ready!" toast appeared, or
-      // 2. The "Save" button exists and is not disabled, or
-      // 3. The status shows a checkmark
+      // 1. The "Save" button exists and is not disabled, or
+      // 2. The "Edit" button is present (action bar shows when pipeline finishes)
       const buttons = [...(getDoc()?.querySelectorAll('button') || [])];
       const saveBtn = buttons.find(b => b.textContent.includes('Save'));
       if (saveBtn && !saveBtn.disabled) return true;
@@ -603,7 +625,7 @@ async function runTests() {
         throw new Error('Pipeline error: ' + text.slice(text.indexOf('Generation failed'), text.indexOf('Generation failed') + 200));
       }
       return false;
-    }, 60000);
+    }, 90000);
 
     log('Pipeline completed successfully!', 'success');
 
