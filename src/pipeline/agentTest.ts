@@ -1,4 +1,14 @@
 /**
+ * Strip markdown code fences from LLM JSON output.
+ */
+function stripJsonFences(raw: string): string {
+  let s = raw.trim();
+  const fenceMatch = s.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (fenceMatch) return fenceMatch[1].trim();
+  return s;
+}
+
+/**
  * LLM Agent Testing — the final validation step.
  *
  * Instead of just running predetermined checks, this phase:
@@ -326,7 +336,7 @@ RULES:
     const planResult = await chatComplete(apiKey, planMessages, { jsonMode: true, maxTokens: 1024 });
     let testPlan: { tests: Array<{ action: string; text: string; expectation: string; delay?: number }> };
     try {
-      testPlan = JSON.parse(planResult);
+      testPlan = JSON.parse(stripJsonFences(planResult));
     } catch {
       return { passed: false, steps: [], summary: 'LLM could not generate a test plan' };
     }
@@ -392,7 +402,7 @@ Did the interaction work as expected? Return ONLY valid JSON:
       let validation: { passed: boolean; reasoning: string };
       try {
         const valResult = await chatComplete(apiKey, validateMessages, { jsonMode: true, maxTokens: 512 });
-        validation = JSON.parse(valResult);
+        validation = JSON.parse(stripJsonFences(valResult));
       } catch {
         validation = { passed: false, reasoning: 'Could not validate result' };
       }

@@ -26,6 +26,17 @@ import type {
 const MAX_ITERATIONS = 3;
 
 /**
+ * Strip markdown code fences from LLM JSON output.
+ * Anthropic models often wrap JSON in ```json ... ``` even when asked not to.
+ */
+function stripJsonFences(raw: string): string {
+  let s = raw.trim();
+  const fenceMatch = s.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (fenceMatch) return fenceMatch[1].trim();
+  return s;
+}
+
+/**
  * Extract clean HTML from LLM output — strips markdown fences and any preamble.
  */
 function extractHtml(raw: string): string {
@@ -208,7 +219,7 @@ async function runVisualReview(
       { jsonMode: true, maxTokens: 4096 }
     );
 
-    const parsed = JSON.parse(result);
+    const parsed = JSON.parse(stripJsonFences(result));
 
     return {
       needsVisualFix: parsed.needsImprovement === true,
@@ -244,7 +255,7 @@ export async function runClarification(
       { jsonMode: true }
     );
 
-    const parsed = JSON.parse(result);
+    const parsed = JSON.parse(stripJsonFences(result));
     store.setDetail('Questions ready');
     return parsed.questions ?? [];
   } catch (err) {
@@ -287,7 +298,7 @@ export async function runGeneration(
     let planJson = planResult;
 
     try {
-      const parsed = JSON.parse(planResult);
+      const parsed = JSON.parse(stripJsonFences(planResult));
       appName = parsed.name || appName;
       appIcon = parsed.icon || appIcon;
       spec = {
@@ -372,7 +383,7 @@ export async function runGeneration(
         { jsonMode: true, maxTokens: 4096 }
       );
 
-      const review = JSON.parse(reviewResult);
+      const review = JSON.parse(stripJsonFences(reviewResult));
       if (review.hasCriticalBugs && review.bugs?.length > 0) {
         const criticalBugs = review.bugs
           .filter((b: { severity: string }) => b.severity === 'critical' || b.severity === 'major')
