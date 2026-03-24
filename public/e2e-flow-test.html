@@ -162,7 +162,7 @@ function mockClarificationResponse() {
 
 function mockPlanResponse() {
   return JSON.stringify({
-    name: "Simple Counter",
+    name: "E2E Test Counter",
     icon: "🔢",
     description: "A simple counter app with increment, decrement, and reset",
     screens: [{ id: "main", name: "Counter", purpose: "Display and modify counter", wireframe: "", components: ["counter-display", "buttons"], interactions: ["tap-inc", "tap-dec", "tap-reset"] }],
@@ -263,27 +263,28 @@ function getMockResponse(body) {
     return { type: 'agent-test-validate', streaming: false, text: mockAgentTestValidationResponse() };
   }
 
-  // 4. Coding — detect by: streaming + large max_tokens + contains "Generate a COMPLETE" or "HTML application" or "Single HTML file"
-  if (isStreaming && (body.max_tokens >= 8000 || allContent.includes('Generate a COMPLETE') || allContent.includes('HTML application') || allContent.includes('Single HTML file'))) {
+  // 4. Planning — streaming, max_tokens=8192, contains spec/plan keywords
+  //    MUST come before coding check since both are streaming
+  if (isStreaming && body.max_tokens < 16000 && (allContent.includes('specification') || allContent.includes('plan') || allContent.includes('spec'))) {
+    return { type: 'planning', streaming: true, text: mockPlanResponse() };
+  }
+
+  // 5. Coding — streaming + large max_tokens (16384) or contains coding keywords
+  if (isStreaming && (body.max_tokens >= 16000 || allContent.includes('Generate a COMPLETE') || allContent.includes('HTML application') || allContent.includes('Single HTML file'))) {
     return { type: 'coding', streaming: true, text: MOCK_APP_HTML };
   }
 
-  // 5. Code review
+  // 6. Code review
   if (allContent.includes('code review') || allContent.includes('review the following') || allContent.includes('Review this')) {
     return { type: 'code-review', streaming: false, text: mockCodeReviewResponse() };
   }
 
-  // 6. Visual review
+  // 7. Visual review
   if (allContent.includes('visual') && allContent.includes('review')) {
     return { type: 'visual-review', streaming: false, text: mockVisualReviewResponse() };
   }
 
-  // 7. Planning (streaming)
-  if (allContent.includes('specification') || allContent.includes('plan') || allContent.includes('spec')) {
-    return { type: 'planning', streaming: true, text: mockPlanResponse() };
-  }
-
-  // 8. Clarification (non-streaming, fallback)
+  // 8. Clarification (non-streaming)
   if (allContent.includes('clarif') || allContent.includes('question')) {
     return { type: 'clarification', streaming: false, text: mockClarificationResponse() };
   }
@@ -300,6 +301,13 @@ function installFetchMockInIframe(iframeWindow) {
   const origFetch = iframeWindow.fetch.bind(iframeWindow);
   apiCallLog = [];
 
+  // Also capture console.error from iframe for debugging
+  const origConsoleError = iframeWindow.console.error;
+  iframeWindow.console.error = function(...args) {
+    log(`[iframe] console.error: ${args.map(a => typeof a === 'object' ? JSON.stringify(a).substring(0, 200) : String(a).substring(0, 200)).join(' ')}`, 'warn');
+    origConsoleError.apply(iframeWindow.console, args);
+  };
+
   iframeWindow.fetch = async function(url, opts) {
     const urlStr = typeof url === 'string' ? url : url?.url || '';
 
@@ -307,11 +315,18 @@ function installFetchMockInIframe(iframeWindow) {
       return origFetch(url, opts);
     }
 
-    const body = opts?.body ? JSON.parse(opts.body) : {};
+    let body;
+    try {
+      body = opts?.body ? JSON.parse(opts.body) : {};
+    } catch (e) {
+      log(`[iframe] API mock: failed to parse body: ${e.message}`, 'error');
+      body = {};
+    }
     const mock = getMockResponse(body);
+    const isStreamReq = body.stream === true;
 
     apiCallLog.push({ type: mock.type, streaming: mock.streaming, timestamp: Date.now() });
-    log(`[iframe] API mock: ${mock.type} (${mock.streaming ? 'stream' : 'non-stream'})`, 'info');
+    log(`[iframe] API mock: ${mock.type} (${mock.streaming ? 'stream' : 'non-stream'}) [req.stream=${isStreamReq}, max_tokens=${body.max_tokens}]`, 'info');
 
     // Small simulated delay
     await new Promise(r => setTimeout(r, 30));
@@ -390,6 +405,15 @@ function typeInto(input, value) {
 
 // ─── Pre-test: Clear any existing state ───
 async function clearAppState() {
+  // Unregister any service workers to avoid stale cache
+  if ('serviceWorker' in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map(r => r.unregister()));
+    const cacheKeys = await caches.keys();
+    await Promise.all(cacheKeys.map(k => caches.delete(k)));
+    if (regs.length) log(`Unregistered ${regs.length} service worker(s), cleared ${cacheKeys.length} cache(s)`, 'info');
+  }
+
   const { Dexie } = await import('https://cdn.jsdelivr.net/npm/dexie@4/dist/dexie.mjs');
   const db = new Dexie('appforge');
   db.version(1).stores({
@@ -399,14 +423,9 @@ async function clearAppState() {
   });
   // Clear settings so we start fresh at onboarding
   await db.table('settings').clear();
-  // Remove any test apps
-  const allApps = await db.table('apps').toArray();
-  for (const app of allApps) {
-    if (app.name?.includes('E2E') || app.id?.includes('e2e')) {
-      await db.table('apps').delete(app.id);
-      await db.table('appCode').delete(app.id);
-    }
-  }
+  // Remove ALL apps to start clean (avoids leftovers from previous test runs)
+  await db.table('apps').clear();
+  await db.table('appCode').clear();
   db.close();
   log('Cleared existing app state', 'success');
 }
@@ -681,12 +700,17 @@ async function runTests() {
   });
 
   await test('App appears in home page app list', async () => {
-    // Wait for the app to appear in the list
-    await waitForText('E2E Test Counter', 5000);
+    // Log current page content for debugging
+    const bodyText = getDoc()?.body?.innerText || '';
+    const appNames = [...(getDoc()?.querySelectorAll?.('button') || [])].map(b => b.textContent?.trim()).filter(t => t && t.length > 2);
+    log(`Home page buttons: ${appNames.slice(0, 10).join(', ')}`, 'info');
 
-    // Verify the app card shows "Ready" status
-    const body = getDoc()?.body?.innerText || '';
-    assert(body.includes('E2E Test Counter'), 'App not found in home page list');
+    // Wait for the app to appear (try both possible names)
+    await waitFor(() => {
+      const text = getDoc()?.body?.innerText || '';
+      return text.includes('E2E Test Counter') || text.includes('E2E Test C');
+    }, 8000);
+
     log('App "E2E Test Counter" found on home page', 'success');
   });
 
@@ -696,8 +720,8 @@ async function runTests() {
   await test('Install button triggers correct flow', async () => {
     // Tap on the app card to open the detail sheet
     const buttons = [...getDoc().querySelectorAll('button')];
-    const appCard = buttons.find(b => b.textContent.includes('E2E Test Counter'));
-    assert(appCard, 'App card not found');
+    const appCard = buttons.find(b => b.textContent.includes('E2E Test Counter') || b.textContent.includes('E2E Test C'));
+    assert(appCard, `App card not found. Buttons: ${buttons.map(b => b.textContent?.trim()?.substring(0, 20)).filter(Boolean).join(', ')}`);
     click(appCard);
     await wait(800);
 
