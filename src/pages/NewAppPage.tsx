@@ -24,6 +24,7 @@ type EditMode = null | 'choosing' | 'refine' | 'regenerate';
 
 export default function NewAppPage() {
   const [prompt, setPrompt] = useState('');
+  const [appName, setAppName] = useState('');
   const [loading, setLoading] = useState(false);
   const [editMode, setEditMode] = useState<EditMode>(null);
   const [existingApp, setExistingApp] = useState<AppMetadata | null>(null);
@@ -43,6 +44,7 @@ export default function NewAppPage() {
       getApp(editId).then(async (app) => {
         if (app) {
           setPrompt(app.prompt);
+          setAppName(app.name);
           setExistingApp(app);
           // Check if there's existing generated code
           const code = await getAppCode(editId);
@@ -89,7 +91,7 @@ export default function NewAppPage() {
       // Normal flow: create/update app then clarify → generate
       const app: AppMetadata = {
         id: appId,
-        name: 'New App',
+        name: appName.trim() || 'Untitled App',
         icon: '📱',
         prompt: prompt.trim(),
         clarifications: [],
@@ -207,6 +209,18 @@ export default function NewAppPage() {
                 ? 'Describe what you want to change:'
                 : 'What would you like to build?'}
             </p>
+
+            {/* App name input — only for new apps and regenerate, not refine */}
+            {!isRefineMode && (
+              <input
+                type="text"
+                value={appName}
+                onChange={(e) => setAppName(e.target.value)}
+                placeholder="App name (e.g. My Workout Tracker)"
+                className="w-full mb-3 px-4 py-3 bg-surface-light border border-surface-lighter rounded-xl text-text placeholder-text-dim focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary text-base"
+                maxLength={40}
+              />
+            )}
 
             <textarea
               value={prompt}

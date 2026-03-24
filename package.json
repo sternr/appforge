@@ -11,7 +11,9 @@
     "test": "vitest run",
     "test:e2e": "npx playwright test",
     "test:e2e:ui": "npx playwright test --ui",
-    "test:all": "vitest run && npx playwright test"
+    "test:all": "vitest run && npx playwright test",
+    "validate": "bash scripts/validate-build.sh",
+    "predeploy": "npm run build && npm run validate"
   },
   "dependencies": {
     "dexie": "^4.3.0",
