@@ -278,8 +278,8 @@ function getMockResponse(body) {
     return { type: 'visual-review', streaming: false, text: mockVisualReviewResponse() };
   }
 
-  // 7. Planning (streaming)
-  if (allContent.includes('specification') || allContent.includes('plan') || allContent.includes('spec')) {
+  // 7. Planning (MUST be streaming — clarification is non-streaming chatComplete)
+  if (isStreaming && (allContent.includes('specification') || allContent.includes('plan') || allContent.includes('spec'))) {
     return { type: 'planning', streaming: true, text: mockPlanResponse() };
   }
 
