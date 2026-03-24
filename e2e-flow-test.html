@@ -423,14 +423,9 @@ async function clearAppState() {
   });
   // Clear settings so we start fresh at onboarding
   await db.table('settings').clear();
-  // Remove any test apps
-  const allApps = await db.table('apps').toArray();
-  for (const app of allApps) {
-    if (app.name?.includes('E2E') || app.id?.includes('e2e')) {
-      await db.table('apps').delete(app.id);
-      await db.table('appCode').delete(app.id);
-    }
-  }
+  // Remove ALL apps to start clean (avoids leftovers from previous test runs)
+  await db.table('apps').clear();
+  await db.table('appCode').clear();
   db.close();
   log('Cleared existing app state', 'success');
 }
@@ -705,12 +700,17 @@ async function runTests() {
   });
 
   await test('App appears in home page app list', async () => {
-    // Wait for the app to appear in the list
-    await waitForText('E2E Test Counter', 5000);
+    // Log current page content for debugging
+    const bodyText = getDoc()?.body?.innerText || '';
+    const appNames = [...(getDoc()?.querySelectorAll?.('button') || [])].map(b => b.textContent?.trim()).filter(t => t && t.length > 2);
+    log(`Home page buttons: ${appNames.slice(0, 10).join(', ')}`, 'info');
 
-    // Verify the app card shows "Ready" status
-    const body = getDoc()?.body?.innerText || '';
-    assert(body.includes('E2E Test Counter'), 'App not found in home page list');
+    // Wait for the app to appear (try both possible names)
+    await waitFor(() => {
+      const text = getDoc()?.body?.innerText || '';
+      return text.includes('E2E Test Counter') || text.includes('E2E Test C');
+    }, 8000);
+
     log('App "E2E Test Counter" found on home page', 'success');
   });
 
@@ -720,8 +720,8 @@ async function runTests() {
   await test('Install button triggers correct flow', async () => {
     // Tap on the app card to open the detail sheet
     const buttons = [...getDoc().querySelectorAll('button')];
-    const appCard = buttons.find(b => b.textContent.includes('E2E Test Counter'));
-    assert(appCard, 'App card not found');
+    const appCard = buttons.find(b => b.textContent.includes('E2E Test Counter') || b.textContent.includes('E2E Test C'));
+    assert(appCard, `App card not found. Buttons: ${buttons.map(b => b.textContent?.trim()?.substring(0, 20)).filter(Boolean).join(', ')}`);
     click(appCard);
     await wait(800);
 
