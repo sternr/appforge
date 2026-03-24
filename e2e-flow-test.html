@@ -162,7 +162,7 @@ function mockClarificationResponse() {
 
 function mockPlanResponse() {
   return JSON.stringify({
-    name: "Simple Counter",
+    name: "E2E Test Counter",
     icon: "🔢",
     description: "A simple counter app with increment, decrement, and reset",
     screens: [{ id: "main", name: "Counter", purpose: "Display and modify counter", wireframe: "", components: ["counter-display", "buttons"], interactions: ["tap-inc", "tap-dec", "tap-reset"] }],
@@ -405,6 +405,15 @@ function typeInto(input, value) {
 
 // ─── Pre-test: Clear any existing state ───
 async function clearAppState() {
+  // Unregister any service workers to avoid stale cache
+  if ('serviceWorker' in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map(r => r.unregister()));
+    const cacheKeys = await caches.keys();
+    await Promise.all(cacheKeys.map(k => caches.delete(k)));
+    if (regs.length) log(`Unregistered ${regs.length} service worker(s), cleared ${cacheKeys.length} cache(s)`, 'info');
+  }
+
   const { Dexie } = await import('https://cdn.jsdelivr.net/npm/dexie@4/dist/dexie.mjs');
   const db = new Dexie('appforge');
   db.version(1).stores({
