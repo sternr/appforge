@@ -37,6 +37,28 @@ export const MODEL_FAST = 'claude-haiku-4-5-20251001';
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
 
+/** Timeout for individual stream chunk reads (ms). If the browser suspends the tab,
+ *  the stream goes dead and reader.read() hangs forever. This catches that. */
+const STREAM_READ_TIMEOUT = 60_000; // 60s between chunks is generous
+
+/** Timeout for the entire non-streaming API call (ms). */
+const COMPLETE_TIMEOUT = 120_000; // 2 minutes
+
+/**
+ * Race a promise against a timeout. Rejects with a clear message if the timeout fires.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s (browser may have suspended the tab)`));
+    }, ms);
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 /**
  * Convert our internal ChatMessage[] to Anthropic's format.
  * Anthropic uses a top-level `system` param instead of a system message.
@@ -62,6 +84,9 @@ function prepareMessages(messages: ChatMessage[]): {
 /**
  * Stream a chat completion from Anthropic Claude.
  * Yields tokens as they arrive.
+ *
+ * Each reader.read() call is guarded by a timeout — if the browser suspends the tab
+ * and kills the connection, we detect it quickly instead of hanging forever.
  */
 export async function streamChat(
   apiKey: string,
@@ -83,16 +108,20 @@ export async function streamChat(
     body.system = system;
   }
 
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': API_VERSION,
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify(body),
-  });
+  const response = await withTimeout(
+    fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': API_VERSION,
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify(body),
+    }),
+    COMPLETE_TIMEOUT,
+    'Stream API request',
+  );
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -106,33 +135,43 @@ export async function streamChat(
   let fullText = '';
   let buffer = '';
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      // Guard each read with a timeout — this is what catches tab-suspend hangs
+      const { done, value } = await withTimeout(
+        reader.read(),
+        STREAM_READ_TIMEOUT,
+        'Stream read',
+      );
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('data: ')) continue;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('data: ')) continue;
 
-      try {
-        const json = JSON.parse(trimmed.slice(6));
+        try {
+          const json = JSON.parse(trimmed.slice(6));
 
-        // Anthropic SSE: content_block_delta has the text tokens
-        if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
-          const token = json.delta.text;
-          if (token) {
-            fullText += token;
-            callbacks.onToken?.(token);
+          // Anthropic SSE: content_block_delta has the text tokens
+          if (json.type === 'content_block_delta' && json.delta?.type === 'text_delta') {
+            const token = json.delta.text;
+            if (token) {
+              fullText += token;
+              callbacks.onToken?.(token);
+            }
           }
+        } catch {
+          // Skip malformed chunks
         }
-      } catch {
-        // Skip malformed chunks
       }
     }
+  } finally {
+    // Always release the reader lock, even on timeout/error
+    try { reader.cancel(); } catch { /* ignore */ }
   }
 
   callbacks.onDone?.(fullText);
@@ -141,6 +180,7 @@ export async function streamChat(
 
 /**
  * Non-streaming chat completion.
+ * Guarded by an overall timeout.
  */
 export async function chatComplete(
   apiKey: string,
@@ -160,16 +200,20 @@ export async function chatComplete(
     body.system = system;
   }
 
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': API_VERSION,
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify(body),
-  });
+  const response = await withTimeout(
+    fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': API_VERSION,
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify(body),
+    }),
+    COMPLETE_TIMEOUT,
+    'API request',
+  );
 
   if (!response.ok) {
     const errorText = await response.text();

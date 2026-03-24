@@ -34,9 +34,55 @@ export default function GenerationPage() {
 
   const [statusExpanded, setStatusExpanded] = useState(false);
   const [expandedPhase, setExpandedPhase] = useState<PipelinePhase | null>(null);
+  const [showRetry, setShowRetry] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const blobUrlRef = useRef<string | null>(null);
   const generationStarted = useRef(false);
+  const lastProgressRef = useRef({ progress: 0, time: Date.now() });
+
+  // Track progress changes to detect stuck state
+  useEffect(() => {
+    if (phase !== 'done' && phase !== 'error' && phase !== 'idle') {
+      lastProgressRef.current = { progress, time: Date.now() };
+    }
+  }, [progress, phase]);
+
+  // Detect stuck pipeline when user returns to the tab
+  useEffect(() => {
+    function onVisibilityChange() {
+      if (document.visibilityState !== 'visible') return;
+
+      const { phase: currentPhase } = usePipelineStore.getState();
+      // Only check if we're in an active generation phase
+      if (currentPhase === 'done' || currentPhase === 'error' || currentPhase === 'idle') return;
+
+      const elapsed = Date.now() - lastProgressRef.current.time;
+      // If no progress in 30+ seconds after returning, offer retry
+      if (elapsed > 30_000) {
+        console.warn(`[StuckDetect] No progress for ${Math.round(elapsed / 1000)}s in phase "${currentPhase}". Showing retry.`);
+        setShowRetry(true);
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, []);
+
+  const handleRetry = () => {
+    if (!apiKey || !app) return;
+    setShowRetry(false);
+    generationStarted.current = false;
+    usePipelineStore.getState().reset(app.id);
+
+    // Re-trigger generation
+    setTimeout(() => {
+      generationStarted.current = true;
+      if (refineMode && editInstructions) {
+        runRefinement(apiKey, app, editInstructions);
+      } else {
+        runGeneration(apiKey, app, clarifications);
+      }
+    }, 100);
+  };
 
   // Start generation on mount
   useEffect(() => {
@@ -301,6 +347,26 @@ export default function GenerationPage() {
         {/* Shimmer overlay during generation */}
         {phase !== 'done' && phase !== 'error' && generatedHtml && (
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-primary/50 to-transparent animate-pulse" />
+        )}
+
+        {/* Stuck detection retry banner */}
+        {showRetry && phase !== 'done' && phase !== 'error' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-10">
+            <div className="bg-surface-light rounded-2xl p-6 mx-6 text-center shadow-xl border border-surface-lighter">
+              <p className="text-text font-medium mb-2">Generation may have stalled</p>
+              <p className="text-text-muted text-sm mb-4">
+                The browser paused the connection while the app was in the background.
+              </p>
+              <div className="flex gap-3">
+                <Button variant="secondary" onClick={() => setShowRetry(false)} className="flex-1" size="sm">
+                  Dismiss
+                </Button>
+                <Button variant="primary" onClick={handleRetry} className="flex-1" size="sm">
+                  Retry
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
