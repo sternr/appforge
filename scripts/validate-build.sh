@@ -101,6 +101,11 @@ if [ -f dist/e2e-test.html ]; then
 else
   check "e2e-test.html present (optional but recommended)" 0
 fi
+if [ -f dist/e2e-flow-test.html ]; then
+  check "e2e-flow-test.html present" 1
+else
+  check "e2e-flow-test.html present (optional but recommended)" 0
+fi
 
 # Summary
 echo ""

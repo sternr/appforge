@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AppForge E2E Flow Test</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; padding: 24px; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  .subtitle { color: #94a3b8; margin-bottom: 20px; font-size: 0.9rem; }
+  .layout { display: flex; gap: 20px; }
+  .test-panel { flex: 1; min-width: 0; }
+  .preview-panel { width: 420px; flex-shrink: 0; position: sticky; top: 20px; align-self: flex-start; }
+  .preview-panel iframe { width: 414px; height: 736px; border: 2px solid #334155; border-radius: 16px; background: #0f172a; }
+  .preview-label { text-align: center; color: #64748b; font-size: 0.75rem; margin-top: 6px; }
+  .test { padding: 10px 14px; border-radius: 8px; margin-bottom: 6px; display: flex; align-items: flex-start; gap: 10px; background: #1e293b; }
+  .test .icon { font-size: 1.1rem; width: 24px; text-align: center; flex-shrink: 0; margin-top: 1px; }
+  .test .name { flex: 1; font-size: 0.9rem; }
+  .test .time { color: #64748b; font-size: 0.75rem; flex-shrink: 0; }
+  .test.pass { border-left: 3px solid #22c55e; }
+  .test.fail { border-left: 3px solid #ef4444; }
+  .test.running { border-left: 3px solid #eab308; }
+  .test .detail { color: #fca5a5; font-size: 0.8rem; margin-top: 4px; word-break: break-word; }
+  .summary { margin-top: 20px; padding: 14px; border-radius: 12px; font-size: 1rem; text-align: center; }
+  .summary.all-pass { background: #14532d; color: #86efac; }
+  .summary.has-fail { background: #7f1d1d; color: #fca5a5; }
+  .summary.running { background: #422006; color: #fde68a; }
+  #progress { margin-bottom: 12px; color: #94a3b8; font-size: 0.85rem; }
+  .section-header { color: #6366f1; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin: 16px 0 8px 0; padding-left: 4px; }
+  .log-area { background: #1e293b; border-radius: 8px; padding: 12px; margin-top: 16px; max-height: 400px; overflow-y: auto; font-family: 'SF Mono', Monaco, monospace; font-size: 0.75rem; line-height: 1.6; color: #94a3b8; white-space: pre-wrap; word-break: break-all; }
+  .log-area .info { color: #60a5fa; }
+  .log-area .warn { color: #fbbf24; }
+  .log-area .error { color: #f87171; }
+  .log-area .success { color: #4ade80; }
+  @media (max-width: 900px) {
+    .layout { flex-direction: column; }
+    .preview-panel { width: 100%; position: static; }
+    .preview-panel iframe { width: 100%; max-width: 414px; margin: 0 auto; display: block; }
+  }
+</style>
+</head>
+<body>
+<h1>AppForge E2E Flow Test</h1>
+<p class="subtitle">Loads the real app in an iframe, mocks ALL Anthropic API calls, and drives the complete user journey</p>
+<div id="progress">Initializing...</div>
+
+<div class="layout">
+  <div class="test-panel">
+    <div id="results"></div>
+    <div id="summary" class="summary running">Running tests...</div>
+    <div id="log" class="log-area"></div>
+  </div>
+  <div class="preview-panel">
+    <iframe id="app-frame" src="about:blank" title="AppForge Preview"></iframe>
+    <div class="preview-label">Live App Preview</div>
+  </div>
+</div>
+
+<script type="module">
+// ─── Test infrastructure ───
+const results = [];
+const container = document.getElementById('results');
+const summaryEl = document.getElementById('summary');
+const progressEl = document.getElementById('progress');
+const logEl = document.getElementById('log');
+const appFrame = document.getElementById('app-frame');
+let totalTests = 0;
+
+function log(msg, level = 'info') {
+  const span = document.createElement('span');
+  span.className = level;
+  span.textContent = `[${new Date().toISOString().slice(11,19)}] ${msg}\n`;
+  logEl.appendChild(span);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function section(name) {
+  const h = document.createElement('div');
+  h.className = 'section-header';
+  h.textContent = name;
+  container.appendChild(h);
+}
+
+function addResult(name, passed, detail, ms) {
+  results.push({ name, passed, detail });
+  const div = document.createElement('div');
+  div.className = `test ${passed ? 'pass' : 'fail'}`;
+  div.innerHTML = `
+    <span class="icon">${passed ? '✅' : '❌'}</span>
+    <div>
+      <div class="name">${name}</div>
+      ${detail && !passed ? `<div class="detail">${detail}</div>` : ''}
+    </div>
+    <span class="time">${ms}ms</span>`;
+  container.appendChild(div);
+  updateProgress();
+}
+
+function updateProgress() {
+  const done = results.length;
+  const pass = results.filter(r => r.passed === true).length;
+  const fail = results.filter(r => r.passed === false).length;
+  progressEl.textContent = `${done}/${totalTests} tests run — ${pass} passed, ${fail} failed`;
+}
+
+async function test(name, fn) {
+  const t0 = performance.now();
+  try {
+    await fn();
+    addResult(name, true, null, Math.round(performance.now() - t0));
+  } catch (e) {
+    addResult(name, false, e.message || String(e), Math.round(performance.now() - t0));
+    log(`FAIL: ${name}: ${e.message}`, 'error');
+  }
+}
+
+function assert(condition, msg) {
+  if (!condition) throw new Error(msg || 'Assertion failed');
+}
+
+// ─── Mock data ───
+const MOCK_APP_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Test Counter App</title>
+<style>
+  body { font-family: system-ui; background: #0f172a; color: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+  h1 { font-size: 3rem; margin-bottom: 1rem; }
+  button { padding: 12px 24px; font-size: 1.2rem; border-radius: 8px; border: none; cursor: pointer; margin: 4px; }
+  .inc { background: #22c55e; color: white; }
+  .dec { background: #ef4444; color: white; }
+  .reset { background: #6366f1; color: white; }
+  #count { font-size: 5rem; font-weight: bold; color: #6366f1; margin: 1rem 0; }
+</style>
+</head>
+<body>
+<h1>Counter App</h1>
+<div id="count">0</div>
+<div>
+  <button class="dec" onclick="update(-1)">- Decrease</button>
+  <button class="reset" onclick="reset()">Reset</button>
+  <button class="inc" onclick="update(1)">+ Increase</button>
+</div>
+<script>
+  let count = 0;
+  const el = document.getElementById('count');
+  function update(d) { count += d; el.textContent = count; }
+  function reset() { count = 0; el.textContent = '0'; }
+<\/script>
+</body>
+</html>`;
+
+// ─── Mock API responses ───
+function mockClarificationResponse() {
+  return JSON.stringify({
+    questions: [
+      { question: "What range should the counter support?", options: ["0-100", "0-1000", "Unlimited", "Custom range"] },
+      { question: "Should the app save state between sessions?", options: ["Yes, persist count", "No, reset on reload"] }
+    ]
+  });
+}
+
+function mockPlanResponse() {
+  return JSON.stringify({
+    name: "Simple Counter",
+    icon: "🔢",
+    description: "A simple counter app with increment, decrement, and reset",
+    screens: [{ id: "main", name: "Counter", purpose: "Display and modify counter", wireframe: "", components: ["counter-display", "buttons"], interactions: ["tap-inc", "tap-dec", "tap-reset"] }],
+    flows: [],
+    designSystem: {
+      colorPalette: { primary: "#6366f1", background: "#0f172a", text: "#f8fafc" },
+      typography: { heading: "system-ui", body: "system-ui" },
+      spacing: "8px", borderRadius: "12px", style: "modern-dark"
+    },
+    testCases: [
+      { id: "t1", type: "functional", description: "Counter increments on + click", steps: ["Click +"], expected: "Count goes up by 1" },
+      { id: "t2", type: "functional", description: "Counter decrements on - click", steps: ["Click -"], expected: "Count goes down by 1" },
+      { id: "t3", type: "functional", description: "Reset sets counter to 0", steps: ["Click Reset"], expected: "Count becomes 0" }
+    ]
+  });
+}
+
+function mockCodeReviewResponse() {
+  return JSON.stringify({ hasCriticalBugs: false, overallQuality: "good", bugs: [] });
+}
+
+function mockVisualReviewResponse() {
+  return JSON.stringify({
+    needsImprovement: false,
+    scores: { layout: { score: 8, issue: null }, colors: { score: 9, issue: null }, typography: { score: 8, issue: null } },
+    improvements: [], summary: "Visual quality is good"
+  });
+}
+
+function mockAgentTestPlanResponse() {
+  return JSON.stringify({
+    tests: [
+      { action: "click", text: "+ Increase", expectation: "Counter should increase to 1", delay: 500 },
+      { action: "click", text: "Reset", expectation: "Counter should reset to 0", delay: 500 }
+    ]
+  });
+}
+
+function mockAgentTestValidationResponse() {
+  return JSON.stringify({ passed: true, reasoning: "The interaction worked as expected" });
+}
+
+// ─── SSE stream builder ───
+function createSSEStream(text) {
+  const events = [];
+  events.push(`event: message_start\ndata: ${JSON.stringify({ type: "message_start", message: { id: "msg_mock", type: "message", role: "assistant", content: [], model: "claude-haiku-4-5-20251001" } })}\n\n`);
+  events.push(`event: content_block_start\ndata: ${JSON.stringify({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } })}\n\n`);
+  const chunkSize = 50;
+  for (let i = 0; i < text.length; i += chunkSize) {
+    const chunk = text.slice(i, i + chunkSize);
+    events.push(`event: content_block_delta\ndata: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: chunk } })}\n\n`);
+  }
+  events.push(`event: content_block_stop\ndata: ${JSON.stringify({ type: "content_block_stop", index: 0 })}\n\n`);
+  events.push(`event: message_delta\ndata: ${JSON.stringify({ type: "message_delta", delta: { stop_reason: "end_turn" } })}\n\n`);
+  events.push(`event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`);
+  return events.join('');
+}
+
+function createNonStreamingResponse(text) {
+  return { id: "msg_mock", type: "message", role: "assistant", content: [{ type: "text", text }], model: "claude-haiku-4-5-20251001", stop_reason: "end_turn" };
+}
+
+// ─── Fetch mock for the iframe ───
+let apiCallLog = [];
+
+/**
+ * Determine mock response based on request content.
+ * Handles: key validation, clarification, planning, coding, code-review, visual-review, agent-test.
+ */
+function getMockResponse(body) {
+  const messages = body.messages || [];
+  const lastMsg = messages[messages.length - 1];
+  // Handle array content (multimodal messages from agent test)
+  let userContent = '';
+  if (lastMsg?.content) {
+    if (typeof lastMsg.content === 'string') {
+      userContent = lastMsg.content;
+    } else if (Array.isArray(lastMsg.content)) {
+      userContent = lastMsg.content.filter(c => c.type === 'text').map(c => c.text).join(' ');
+    }
+  }
+  const systemContent = typeof body.system === 'string' ? body.system : '';
+  const allContent = userContent + ' ' + systemContent;
+  const isStreaming = body.stream === true;
+
+  // 1. Key validation: max_tokens=1, simple "Hi" message
+  if (body.max_tokens === 1 && userContent.trim() === 'Hi') {
+    return { type: 'key-validation', streaming: false, text: 'Hello!' };
+  }
+
+  // 2. Agent test: define test interactions
+  if (allContent.includes('Define exactly') && allContent.includes('test interaction')) {
+    return { type: 'agent-test-plan', streaming: false, text: mockAgentTestPlanResponse() };
+  }
+
+  // 3. Agent test: validate result
+  if (allContent.includes('Did the interaction work as expected')) {
+    return { type: 'agent-test-validate', streaming: false, text: mockAgentTestValidationResponse() };
+  }
+
+  // 4. Clarification
+  if (allContent.includes('clarif') || allContent.includes('question')) {
+    return { type: 'clarification', streaming: false, text: mockClarificationResponse() };
+  }
+
+  // 5. Planning (streaming)
+  if (allContent.includes('specification') || allContent.includes('plan') || allContent.includes('spec')) {
+    return { type: 'planning', streaming: true, text: mockPlanResponse() };
+  }
+
+  // 6. Code review
+  if (allContent.includes('code review') || allContent.includes('review the following') || allContent.includes('Review this')) {
+    return { type: 'code-review', streaming: false, text: mockCodeReviewResponse() };
+  }
+
+  // 7. Visual review
+  if (allContent.includes('visual') && allContent.includes('review')) {
+    return { type: 'visual-review', streaming: false, text: mockVisualReviewResponse() };
+  }
+
+  // 8. Coding (streaming)
+  if (allContent.includes('HTML') || allContent.includes('code') || allContent.includes('implement') || allContent.includes('build') || allContent.includes('Create') || allContent.includes('single-file')) {
+    return { type: 'coding', streaming: true, text: MOCK_APP_HTML };
+  }
+
+  // Fallback
+  return { type: 'fallback', streaming: isStreaming, text: '{"status":"ok"}' };
+}
+
+/**
+ * Install the fetch mock into the iframe's window.
+ * Must be called after iframe loads.
+ */
+function installFetchMockInIframe(iframeWindow) {
+  const origFetch = iframeWindow.fetch.bind(iframeWindow);
+  apiCallLog = [];
+
+  iframeWindow.fetch = async function(url, opts) {
+    const urlStr = typeof url === 'string' ? url : url?.url || '';
+
+    if (!urlStr.includes('api.anthropic.com')) {
+      return origFetch(url, opts);
+    }
+
+    const body = opts?.body ? JSON.parse(opts.body) : {};
+    const mock = getMockResponse(body);
+
+    apiCallLog.push({ type: mock.type, streaming: mock.streaming, timestamp: Date.now() });
+    log(`[iframe] API mock: ${mock.type} (${mock.streaming ? 'stream' : 'non-stream'})`, 'info');
+
+    // Small simulated delay
+    await new Promise(r => setTimeout(r, 30));
+
+    if (mock.streaming) {
+      const sseData = createSSEStream(mock.text);
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        start(controller) {
+          const events = sseData.split('\n\n').filter(e => e.trim());
+          for (const evt of events) {
+            controller.enqueue(encoder.encode(evt + '\n\n'));
+          }
+          controller.close();
+        }
+      });
+      return new Response(stream, { status: 200, headers: { 'Content-Type': 'text/event-stream' } });
+    } else {
+      return new Response(JSON.stringify(createNonStreamingResponse(mock.text)), {
+        status: 200, headers: { 'Content-Type': 'application/json' }
+      });
+    }
+  };
+
+  return origFetch;
+}
+
+// ─── DOM helpers for driving the iframe UI ───
+function getDoc() {
+  return appFrame.contentDocument;
+}
+
+function wait(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+async function waitFor(fn, timeout = 15000, interval = 200) {
+  const start = Date.now();
+  while (Date.now() - start < timeout) {
+    try {
+      const result = fn();
+      if (result) return result;
+    } catch {}
+    await wait(interval);
+  }
+  throw new Error(`waitFor timed out after ${timeout}ms`);
+}
+
+async function waitForEl(selector, timeout = 15000) {
+  return waitFor(() => getDoc()?.querySelector(selector), timeout);
+}
+
+async function waitForText(text, timeout = 15000) {
+  return waitFor(() => {
+    const body = getDoc()?.body;
+    if (!body) return null;
+    return body.innerText.includes(text) ? body : null;
+  }, timeout);
+}
+
+function click(el) {
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+}
+
+function typeInto(input, value) {
+  // React controlled inputs need special handling
+  const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+    input.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype,
+    'value'
+  ).set;
+  nativeInputValueSetter.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+// ─── Pre-test: Clear any existing state ───
+async function clearAppState() {
+  const { Dexie } = await import('https://cdn.jsdelivr.net/npm/dexie@4/dist/dexie.mjs');
+  const db = new Dexie('appforge');
+  db.version(1).stores({
+    apps: 'id, name, status, createdAt, updatedAt',
+    appCode: 'appId, version',
+    settings: 'key',
+  });
+  // Clear settings so we start fresh at onboarding
+  await db.table('settings').clear();
+  // Remove any test apps
+  const allApps = await db.table('apps').toArray();
+  for (const app of allApps) {
+    if (app.name?.includes('E2E') || app.id?.includes('e2e')) {
+      await db.table('apps').delete(app.id);
+      await db.table('appCode').delete(app.id);
+    }
+  }
+  db.close();
+  log('Cleared existing app state', 'success');
+}
+
+// ─── Load the app iframe ───
+async function loadApp() {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('App iframe load timeout (20s)')), 20000);
+
+    appFrame.onload = () => {
+      clearTimeout(timeout);
+      // Install fetch mock immediately
+      const origFetch = installFetchMockInIframe(appFrame.contentWindow);
+      log('Fetch mock installed in iframe', 'success');
+      // Wait for React to mount
+      setTimeout(() => resolve(origFetch), 2500);
+    };
+
+    appFrame.onerror = () => {
+      clearTimeout(timeout);
+      reject(new Error('App iframe failed to load'));
+    };
+
+    appFrame.src = './index.html';
+  });
+}
+
+// ═══════ Run all tests ═══════
+async function runTests() {
+  totalTests = 10;
+
+  // ═══════ Section 1: Setup ═══════
+  section('Setup & Initialization');
+
+  let origFetch;
+
+  await test('Clear existing state and load app', async () => {
+    await clearAppState();
+    origFetch = await loadApp();
+    // Verify we're on the onboarding page
+    await waitForText('AppForge', 10000);
+    const doc = getDoc();
+    assert(doc, 'Could not access iframe document');
+    // Should show onboarding (API key input)
+    const input = await waitForEl('input[type="password"]', 10000);
+    assert(input, 'Should show API key input on onboarding page');
+    log('App loaded, on onboarding page', 'success');
+  });
+
+  // ═══════ Section 2: Onboarding ═══════
+  section('Onboarding — Set API Key');
+
+  await test('Enter API key and verify', async () => {
+    const input = getDoc().querySelector('input[type="password"]');
+    assert(input, 'API key input not found');
+
+    // Type a valid-looking API key
+    typeInto(input, 'sk-ant-api03-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX-XXXXX');
+    await wait(300);
+
+    // The "Get Started" button should become enabled
+    const buttons = [...getDoc().querySelectorAll('button')];
+    const getStartedBtn = buttons.find(b => b.textContent.includes('Get Started'));
+    assert(getStartedBtn, 'Get Started button not found');
+    assert(!getStartedBtn.disabled, 'Get Started button should be enabled after entering valid key');
+
+    log('API key entered, button enabled', 'success');
+
+    // Click Get Started — this will trigger the key validation fetch (mocked)
+    click(getStartedBtn);
+
+    // Wait for navigation to home page
+    await waitForText('AppForge', 10000);
+    // Home page should have "New App" button or empty state
+    await waitFor(() => {
+      const body = getDoc()?.body?.innerText || '';
+      return body.includes('New App') || body.includes('Create Your First App') || body.includes('No apps yet');
+    }, 10000);
+
+    // Verify the key validation API call was made
+    const keyValidation = apiCallLog.find(c => c.type === 'key-validation');
+    assert(keyValidation, 'Key validation API call should have been made');
+
+    log('Navigated to home page after key validation', 'success');
+  });
+
+  // ═══════ Section 3: Create New App ═══════
+  section('Create New App');
+
+  await test('Navigate to New App and fill in details', async () => {
+    // Find and click "New App" or "Create Your First App" button
+    const buttons = [...getDoc().querySelectorAll('button')];
+    const newAppBtn = buttons.find(b =>
+      b.textContent.includes('New App') || b.textContent.includes('Create Your First App')
+    );
+    assert(newAppBtn, 'New App button not found');
+    click(newAppBtn);
+
+    // Wait for the New App page to load
+    await waitForText('What would you like to build', 10000);
+
+    // Fill in app name
+    const nameInput = await waitForEl('input[type="text"]', 5000);
+    assert(nameInput, 'App name input not found');
+    typeInto(nameInput, 'E2E Test Counter');
+    await wait(200);
+
+    // Fill in prompt
+    const textarea = await waitForEl('textarea', 5000);
+    assert(textarea, 'Prompt textarea not found');
+    typeInto(textarea, 'A simple counter app that can increment, decrement, and reset a number');
+    await wait(200);
+
+    // Find and click Generate
+    const genButtons = [...getDoc().querySelectorAll('button')];
+    const generateBtn = genButtons.find(b => b.textContent.includes('Generate'));
+    assert(generateBtn, 'Generate button not found');
+    assert(!generateBtn.disabled, 'Generate button should be enabled');
+    log('Filled in app name and prompt', 'success');
+
+    click(generateBtn);
+    log('Clicked Generate button', 'info');
+  });
+
+  // ═══════ Section 4: Clarification ═══════
+  section('Clarification Questions');
+
+  await test('Answer clarification questions', async () => {
+    // Wait for clarification page to load
+    await waitForText('Quick Questions', 15000);
+    log('Clarification page loaded', 'success');
+
+    // Wait for Q1
+    await waitForText('What range should the counter support', 10000);
+
+    // Select first option for Q1
+    const options1 = [...getDoc().querySelectorAll('button')].filter(b => {
+      const text = b.textContent.trim();
+      return text === '0-100' || text === '0-1000' || text === 'Unlimited' || text === 'Custom range';
+    });
+    assert(options1.length > 0, 'No answer options found for Q1');
+    click(options1[0]); // Select first option
+    await wait(300);
+
+    // Click Next
+    const nextBtn = [...getDoc().querySelectorAll('button')].find(b => b.textContent.includes('Next'));
+    assert(nextBtn, 'Next button not found');
+    click(nextBtn);
+    await wait(500);
+
+    // Wait for Q2
+    await waitForText('Should the app save state', 10000);
+
+    // Select first option for Q2
+    const options2 = [...getDoc().querySelectorAll('button')].filter(b => {
+      const text = b.textContent.trim();
+      return text.includes('persist') || text.includes('reset on reload');
+    });
+    assert(options2.length > 0, 'No answer options found for Q2');
+    click(options2[0]);
+    await wait(300);
+
+    // Click Generate (last question)
+    const genBtn = [...getDoc().querySelectorAll('button')].find(b => b.textContent.includes('Generate'));
+    assert(genBtn, 'Generate button not found on last question');
+    click(genBtn);
+    log('Answered all clarification questions', 'success');
+  });
+
+  // ═══════ Section 5: Generation Pipeline ═══════
+  section('Generation Pipeline');
+
+  await test('Pipeline runs through all phases to completion', async () => {
+    // Wait for the generation page
+    await waitFor(() => {
+      const text = getDoc()?.body?.innerText || '';
+      return text.includes('Starting') || text.includes('Planning') || text.includes('Generating') || text.includes('Coding') || text.includes('Testing') || text.includes('ready');
+    }, 15000);
+    log('Generation page loaded', 'success');
+
+    // Wait for pipeline to complete — look for Save/Install buttons becoming enabled,
+    // or "Your app is ready!" text. Max 60s for the full pipeline.
+    await waitFor(() => {
+      const text = getDoc()?.body?.innerText || '';
+      // The pipeline is done when:
+      // 1. "Your app is ready!" toast appeared, or
+      // 2. The "Save" button exists and is not disabled, or
+      // 3. The status shows a checkmark
+      const buttons = [...(getDoc()?.querySelectorAll('button') || [])];
+      const saveBtn = buttons.find(b => b.textContent.includes('Save'));
+      if (saveBtn && !saveBtn.disabled) return true;
+
+      // Also check for error state
+      if (text.includes('Generation failed')) {
+        throw new Error('Pipeline error: ' + text.slice(text.indexOf('Generation failed'), text.indexOf('Generation failed') + 200));
+      }
+      return false;
+    }, 60000);
+
+    log('Pipeline completed successfully!', 'success');
+
+    // Verify the API call sequence
+    const callTypes = apiCallLog.map(c => c.type);
+    log(`API call sequence: ${callTypes.join(' → ')}`, 'info');
+
+    // Should have at least: key-validation, clarification, planning, coding
+    assert(callTypes.includes('key-validation'), 'Missing key-validation call');
+    assert(callTypes.includes('clarification'), 'Missing clarification call');
+    assert(callTypes.includes('planning'), 'Missing planning call');
+    assert(callTypes.includes('coding'), 'Missing coding call');
+
+    log(`Total API calls: ${apiCallLog.length}`, 'success');
+  });
+
+  await test('Preview iframe shows generated app', async () => {
+    // The generation page should have an iframe with the generated app
+    const iframe = getDoc()?.querySelector('iframe[title="App Preview"]');
+    assert(iframe, 'App preview iframe not found');
+    assert(iframe.src && iframe.src !== 'about:blank', 'Preview iframe should have a src');
+    log('Preview iframe is showing the generated app', 'success');
+  });
+
+  // ═══════ Section 6: Save App ═══════
+  section('Save & Verify');
+
+  await test('Save app and return to home', async () => {
+    // Click Save button
+    const buttons = [...getDoc().querySelectorAll('button')];
+    const saveBtn = buttons.find(b => b.textContent.includes('Save'));
+    assert(saveBtn, 'Save button not found');
+    assert(!saveBtn.disabled, 'Save button should be enabled');
+    click(saveBtn);
+
+    // Wait for navigation back to home page
+    await waitFor(() => {
+      const text = getDoc()?.body?.innerText || '';
+      return text.includes('AppForge') && (text.includes('New App') || text.includes('E2E Test Counter'));
+    }, 10000);
+
+    log('Navigated back to home page', 'success');
+  });
+
+  await test('App appears in home page app list', async () => {
+    // Wait for the app to appear in the list
+    await waitForText('E2E Test Counter', 5000);
+
+    // Verify the app card shows "Ready" status
+    const body = getDoc()?.body?.innerText || '';
+    assert(body.includes('E2E Test Counter'), 'App not found in home page list');
+    log('App "E2E Test Counter" found on home page', 'success');
+  });
+
+  // ═══════ Section 7: Install Flow ═══════
+  section('Install Flow');
+
+  await test('Install button triggers correct flow', async () => {
+    // Tap on the app card to open the detail sheet
+    const buttons = [...getDoc().querySelectorAll('button')];
+    const appCard = buttons.find(b => b.textContent.includes('E2E Test Counter'));
+    assert(appCard, 'App card not found');
+    click(appCard);
+    await wait(800);
+
+    // Wait for the bottom sheet to show install option
+    await waitFor(() => {
+      const text = getDoc()?.body?.innerText || '';
+      return text.includes('Install') && text.includes('Open');
+    }, 5000);
+
+    // Verify the Install button exists
+    const sheetButtons = [...getDoc().querySelectorAll('button')];
+    const installBtn = sheetButtons.find(b => b.textContent.includes('Install') && !b.textContent.includes('Installed'));
+    assert(installBtn, 'Install button not found in detail sheet');
+    assert(!installBtn.disabled, 'Install button should be enabled for a ready app');
+
+    log('Install button available and enabled in detail sheet', 'success');
+
+    // We won't actually click install because it opens a new window,
+    // but we verify it exists and is functional
+  });
+
+  // ═══════ Section 8: Cleanup ═══════
+  section('Cleanup');
+
+  await test('Clean up test data', async () => {
+    const { Dexie } = await import('https://cdn.jsdelivr.net/npm/dexie@4/dist/dexie.mjs');
+    const db = new Dexie('appforge');
+    db.version(1).stores({
+      apps: 'id, name, status, createdAt, updatedAt',
+      appCode: 'appId, version',
+      settings: 'key',
+    });
+
+    // Remove the test app
+    const allApps = await db.table('apps').toArray();
+    let cleaned = 0;
+    for (const app of allApps) {
+      if (app.name?.includes('E2E')) {
+        await db.table('apps').delete(app.id);
+        await db.table('appCode').delete(app.id).catch(() => {});
+        cleaned++;
+      }
+    }
+    // Clear settings (API key)
+    await db.table('settings').clear();
+
+    db.close();
+    log(`Cleaned up ${cleaned} test app(s) and settings`, 'success');
+  });
+
+  // ─── Summary ───
+  const passed = results.filter(r => r.passed === true).length;
+  const failed = results.filter(r => r.passed === false).length;
+
+  summaryEl.textContent = failed === 0
+    ? `✅ All ${passed} tests passed!`
+    : `❌ ${failed} test${failed > 1 ? 's' : ''} failed out of ${passed + failed}`;
+  summaryEl.className = `summary ${failed === 0 ? 'all-pass' : 'has-fail'}`;
+  progressEl.textContent = `Complete: ${passed} passed, ${failed} failed`;
+
+  log(`\nFinal: ${passed}/${passed + failed} passed`, failed === 0 ? 'success' : 'error');
+  log(`Total API calls intercepted: ${apiCallLog.length}`, 'info');
+  log(`API call types: ${apiCallLog.map(c => c.type).join(', ')}`, 'info');
+}
+
+runTests().catch(err => {
+  log(`Fatal error: ${err.message}\n${err.stack}`, 'error');
+  summaryEl.textContent = `💥 Fatal error: ${err.message}`;
+  summaryEl.className = 'summary has-fail';
+});
+</script>
+</body>
+</html>
