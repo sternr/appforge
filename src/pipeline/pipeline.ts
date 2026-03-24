@@ -588,11 +588,13 @@ export async function runGeneration(
     pipeline.setProgress(100);
     pipeline.setGeneratedHtml(html);
 
-    if (Notification.permission === 'granted') {
-      new Notification('AppForge', {
-        body: `"${finalApp.name}" is ready to use!`,
-      });
-    }
+    try {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification('AppForge', {
+          body: `"${finalApp.name}" is ready to use!`,
+        });
+      }
+    } catch { /* Notification not supported on this platform */ }
   } catch (err) {
     const currentPhase = usePipelineStore.getState().phase;
     const rawMessage = err instanceof Error ? err.message : String(err);
@@ -783,11 +785,13 @@ export async function runRefinement(
     pipeline.setProgress(100);
     pipeline.setGeneratedHtml(html);
 
-    if (Notification.permission === 'granted') {
-      new Notification('AppForge', {
-        body: `"${finalApp.name}" has been updated!`,
-      });
-    }
+    try {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification('AppForge', {
+          body: `"${finalApp.name}" has been updated!`,
+        });
+      }
+    } catch { /* Notification not supported on this platform */ }
   } catch (err) {
     const currentPhase = usePipelineStore.getState().phase;
     const rawMessage = err instanceof Error ? err.message : String(err);

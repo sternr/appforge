@@ -90,10 +90,12 @@ export default function GenerationPage() {
     if (!apiKey || !app || generationStarted.current) return;
     generationStarted.current = true;
 
-    // Request notification permission
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
+    // Request notification permission (not supported on all platforms)
+    try {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    } catch { /* Notification not supported */ }
 
     if (refineMode && editInstructions) {
       runRefinement(apiKey, app, editInstructions);
