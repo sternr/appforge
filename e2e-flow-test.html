@@ -263,27 +263,28 @@ function getMockResponse(body) {
     return { type: 'agent-test-validate', streaming: false, text: mockAgentTestValidationResponse() };
   }
 
-  // 4. Coding — detect by: streaming + large max_tokens + contains "Generate a COMPLETE" or "HTML application" or "Single HTML file"
-  if (isStreaming && (body.max_tokens >= 8000 || allContent.includes('Generate a COMPLETE') || allContent.includes('HTML application') || allContent.includes('Single HTML file'))) {
+  // 4. Planning — streaming, max_tokens=8192, contains spec/plan keywords
+  //    MUST come before coding check since both are streaming
+  if (isStreaming && body.max_tokens < 16000 && (allContent.includes('specification') || allContent.includes('plan') || allContent.includes('spec'))) {
+    return { type: 'planning', streaming: true, text: mockPlanResponse() };
+  }
+
+  // 5. Coding — streaming + large max_tokens (16384) or contains coding keywords
+  if (isStreaming && (body.max_tokens >= 16000 || allContent.includes('Generate a COMPLETE') || allContent.includes('HTML application') || allContent.includes('Single HTML file'))) {
     return { type: 'coding', streaming: true, text: MOCK_APP_HTML };
   }
 
-  // 5. Code review
+  // 6. Code review
   if (allContent.includes('code review') || allContent.includes('review the following') || allContent.includes('Review this')) {
     return { type: 'code-review', streaming: false, text: mockCodeReviewResponse() };
   }
 
-  // 6. Visual review
+  // 7. Visual review
   if (allContent.includes('visual') && allContent.includes('review')) {
     return { type: 'visual-review', streaming: false, text: mockVisualReviewResponse() };
   }
 
-  // 7. Planning (MUST be streaming — clarification is non-streaming chatComplete)
-  if (isStreaming && (allContent.includes('specification') || allContent.includes('plan') || allContent.includes('spec'))) {
-    return { type: 'planning', streaming: true, text: mockPlanResponse() };
-  }
-
-  // 8. Clarification (non-streaming, fallback)
+  // 8. Clarification (non-streaming)
   if (allContent.includes('clarif') || allContent.includes('question')) {
     return { type: 'clarification', streaming: false, text: mockClarificationResponse() };
   }
