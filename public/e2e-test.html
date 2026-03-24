@@ -319,20 +319,13 @@ function installFetchMock() {
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         start(controller) {
-          // Send SSE data in event-boundary chunks (split on double newline)
-          // This avoids splitting JSON data mid-line which breaks parsers
+          // Enqueue all events synchronously — no setTimeout needed for tests.
+          // (setTimeout gets heavily throttled in browsers, causing tests to hang)
           const events = sseData.split('\n\n').filter(e => e.trim());
-          let i = 0;
-          function pushNext() {
-            if (i < events.length) {
-              controller.enqueue(encoder.encode(events[i] + '\n\n'));
-              i++;
-              setTimeout(pushNext, 10);
-            } else {
-              controller.close();
-            }
+          for (const evt of events) {
+            controller.enqueue(encoder.encode(evt + '\n\n'));
           }
-          pushNext();
+          controller.close();
         }
       });
 
