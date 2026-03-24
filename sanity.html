@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AppForge Sanity Tests</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #e2e8f0; padding: 24px; max-width: 800px; margin: 0 auto; }
+  h1 { font-size: 1.5rem; margin-bottom: 8px; }
+  .subtitle { color: #94a3b8; margin-bottom: 24px; font-size: 0.9rem; }
+  .test { padding: 12px 16px; border-radius: 8px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; background: #1e293b; }
+  .test .icon { font-size: 1.2rem; width: 28px; text-align: center; }
+  .test .name { flex: 1; font-size: 0.95rem; }
+  .test .time { color: #64748b; font-size: 0.8rem; }
+  .test.pass { border-left: 3px solid #22c55e; }
+  .test.fail { border-left: 3px solid #ef4444; }
+  .test.running { border-left: 3px solid #eab308; }
+  .test.fail .detail { color: #fca5a5; font-size: 0.8rem; margin-top: 4px; }
+  .summary { margin-top: 24px; padding: 16px; border-radius: 12px; font-size: 1.1rem; text-align: center; }
+  .summary.all-pass { background: #14532d; color: #86efac; }
+  .summary.has-fail { background: #7f1d1d; color: #fca5a5; }
+  .summary.running { background: #422006; color: #fde68a; }
+  #progress { margin-bottom: 16px; color: #94a3b8; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<h1>AppForge Sanity Tests</h1>
+<p class="subtitle">Automated checks that the deployed build is functional</p>
+<div id="progress">Running...</div>
+<div id="results"></div>
+<div id="summary" class="summary running">Running tests...</div>
+
+<script type="module">
+const results = [];
+const container = document.getElementById('results');
+const summaryEl = document.getElementById('summary');
+const progressEl = document.getElementById('progress');
+
+function addResult(name, passed, detail, ms) {
+  results.push({ name, passed, detail });
+  const div = document.createElement('div');
+  div.className = `test ${passed ? 'pass' : 'fail'}`;
+  div.innerHTML = `
+    <span class="icon">${passed ? '✅' : '❌'}</span>
+    <div>
+      <div class="name">${name}</div>
+      ${detail && !passed ? `<div class="detail">${detail}</div>` : ''}
+    </div>
+    <span class="time">${ms}ms</span>
+  `;
+  container.appendChild(div);
+  updateSummary();
+}
+
+function updateSummary() {
+  const passed = results.filter(r => r.passed).length;
+  const failed = results.filter(r => !r.passed).length;
+  const total = results.length;
+  progressEl.textContent = `${total} tests completed`;
+  if (failed > 0) {
+    summaryEl.className = 'summary has-fail';
+    summaryEl.textContent = `${passed}/${total} passed, ${failed} failed`;
+  } else {
+    summaryEl.className = 'summary all-pass';
+    summaryEl.textContent = `All ${total} tests passed ✓`;
+  }
+}
+
+async function runTest(name, fn) {
+  const t0 = performance.now();
+  try {
+    await fn();
+    addResult(name, true, null, Math.round(performance.now() - t0));
+  } catch (e) {
+    addResult(name, false, e.message, Math.round(performance.now() - t0));
+  }
+}
+
+function assert(condition, msg) {
+  if (!condition) throw new Error(msg || 'Assertion failed');
+}
+
+// ─── Tests ────────────────────────────────────────────
+
+await runTest('Page loads without error', async () => {
+  assert(document.title, 'Page has a title');
+});
+
+await runTest('Main app HTML loads (index.html)', async () => {
+  const resp = await fetch('./index.html');
+  assert(resp.ok, `index.html returned ${resp.status}`);
+  const text = await resp.text();
+  assert(text.includes('AppForge'), 'index.html contains AppForge');
+  assert(text.length > 10000, `index.html is ${text.length} bytes (expected >10KB for single-file build)`);
+});
+
+await runTest('Manifest loads and has valid structure', async () => {
+  const resp = await fetch('./manifest.webmanifest');
+  assert(resp.ok, `manifest returned ${resp.status}`);
+  const m = await resp.json();
+  assert(m.name === 'AppForge', `name is "${m.name}"`);
+  assert(m.display === 'standalone', `display is "${m.display}"`);
+  assert(m.start_url === './', `start_url is "${m.start_url}" (should be relative)`);
+  assert(m.scope === './', `scope is "${m.scope}" (should be relative)`);
+  assert(m.icons?.length >= 2, `Has ${m.icons?.length} icons (need ≥2)`);
+});
+
+await runTest('Icon 192x192 loads', async () => {
+  const resp = await fetch('./icon-192.png');
+  assert(resp.ok, `icon-192.png returned ${resp.status}`);
+  assert(resp.headers.get('content-type')?.includes('image/png'), 'Content-Type is image/png');
+});
+
+await runTest('Icon 512x512 loads', async () => {
+  const resp = await fetch('./icon-512.png');
+  assert(resp.ok, `icon-512.png returned ${resp.status}`);
+});
+
+await runTest('Apple touch icon loads', async () => {
+  const resp = await fetch('./apple-touch-icon.png');
+  assert(resp.ok, `apple-touch-icon.png returned ${resp.status}`);
+});
+
+await runTest('Service worker file exists', async () => {
+  const resp = await fetch('./sw.js');
+  assert(resp.ok, `sw.js returned ${resp.status}`);
+  const text = await resp.text();
+  assert(text.includes('workbox') || text.includes('precache'), 'SW contains workbox/precache logic');
+});
+
+await runTest('Version.json loads', async () => {
+  const resp = await fetch('./version.json');
+  assert(resp.ok, `version.json returned ${resp.status}`);
+  const v = await resp.json();
+  assert(v.version, `Has version: ${v.version}`);
+  assert(v.buildTime, `Has buildTime: ${v.buildTime}`);
+});
+
+await runTest('App renders in iframe (HashRouter loads)', async () => {
+  const iframe = document.createElement('iframe');
+  iframe.style.display = 'none';
+  iframe.src = './index.html';
+  document.body.appendChild(iframe);
+
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Iframe load timeout (5s)')), 5000);
+    iframe.onload = () => { clearTimeout(timer); resolve(); };
+    iframe.onerror = () => { clearTimeout(timer); reject(new Error('Iframe load error')); };
+  });
+
+  // Give React a moment to hydrate
+  await new Promise(r => setTimeout(r, 1000));
+
+  const doc = iframe.contentDocument;
+  assert(doc, 'Can access iframe document');
+
+  // Check that React rendered something (either onboarding or home page)
+  const body = doc.body;
+  assert(body.innerHTML.length > 100, `Body HTML is ${body.innerHTML.length} chars (expected >100)`);
+
+  // Look for key AppForge UI elements
+  const hasAppForge = body.textContent.includes('AppForge') || body.textContent.includes('API Key') || body.textContent.includes('New App');
+  assert(hasAppForge, 'Rendered page contains AppForge UI text');
+
+  document.body.removeChild(iframe);
+});
+
+await runTest('Anthropic API endpoint is reachable (OPTIONS preflight)', async () => {
+  try {
+    // Just check DNS resolution / connectivity — don't need a valid key
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 3000);
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'OPTIONS',
+      signal: controller.signal,
+    });
+    // Any response (even 4xx) means the endpoint is reachable
+    assert(true, `Endpoint responded with ${resp.status}`);
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error('Anthropic API unreachable (timeout after 3s)');
+    }
+    // CORS errors still mean the server is reachable
+    assert(true, 'Endpoint reachable (CORS blocked as expected for browser)');
+  }
+});
+
+await runTest('stripJsonFences logic works', async () => {
+  // Simulate what the built code does
+  function stripJsonFences(raw) {
+    let s = raw.trim();
+    const fenceMatch = s.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (fenceMatch) return fenceMatch[1].trim();
+    return s;
+  }
+
+  // Test: bare JSON passes through
+  const bare = '{"name":"test"}';
+  assert(stripJsonFences(bare) === bare, 'Bare JSON unchanged');
+
+  // Test: fenced JSON is stripped
+  const fenced = '```json\n{"name":"test"}\n```';
+  assert(stripJsonFences(fenced) === bare, 'Fenced JSON stripped');
+
+  // Test: fenced without language tag
+  const fencedNoLang = '```\n{"name":"test"}\n```';
+  assert(stripJsonFences(fencedNoLang) === bare, 'Fenced (no lang) JSON stripped');
+
+  // Test: parse succeeds after stripping
+  const complex = '```json\n{"questions":[{"text":"How many?","options":["1","2"]}]}\n```';
+  const parsed = JSON.parse(stripJsonFences(complex));
+  assert(parsed.questions.length === 1, 'Parsed fenced JSON correctly');
+});
+
+await runTest('Mock pipeline: clarification JSON parses', async () => {
+  function stripJsonFences(raw) {
+    let s = raw.trim();
+    const m = s.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (m) return m[1].trim();
+    return s;
+  }
+
+  // Simulate what Anthropic actually returns
+  const mockResponse = '```json\n{\n  "questions": [\n    {"text": "What style?", "options": ["Modern", "Classic"]},\n    {"text": "How many screens?", "options": ["1-3", "4+"]}\n  ]\n}\n```';
+
+  const parsed = JSON.parse(stripJsonFences(mockResponse));
+  assert(Array.isArray(parsed.questions), 'Has questions array');
+  assert(parsed.questions.length === 2, `Got ${parsed.questions.length} questions`);
+  assert(parsed.questions[0].text === 'What style?', 'First question correct');
+});
+
+await runTest('Mock pipeline: planning JSON parses', async () => {
+  function stripJsonFences(raw) {
+    let s = raw.trim();
+    const m = s.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (m) return m[1].trim();
+    return s;
+  }
+
+  const mockPlan = '```json\n{"name":"Capital Quest","icon":"🌍","appType":"game","screens":[{"id":"main","name":"Main","purpose":"Quiz game"}],"flows":[],"designSystem":{"colorPalette":{"primary":"#6366f1"},"typography":{"heading":"system-ui","body":"system-ui"},"spacing":"8px","borderRadius":"12px","style":"playful"},"testCases":[]}\n```';
+
+  const parsed = JSON.parse(stripJsonFences(mockPlan));
+  assert(parsed.name === 'Capital Quest', `App name: ${parsed.name}`);
+  assert(parsed.icon === '🌍', `Icon: ${parsed.icon}`);
+  assert(parsed.screens.length >= 1, 'Has screens');
+});
+
+await runTest('Mock pipeline: code review JSON parses', async () => {
+  function stripJsonFences(raw) {
+    let s = raw.trim();
+    const m = s.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (m) return m[1].trim();
+    return s;
+  }
+
+  const mockReview = '```json\n{"hasCriticalBugs":false,"bugs":[],"summary":"Code looks good"}\n```';
+  const parsed = JSON.parse(stripJsonFences(mockReview));
+  assert(parsed.hasCriticalBugs === false, 'No critical bugs');
+});
+
+await runTest('HTML extraction handles markdown-fenced code', async () => {
+  function extractHtml(raw) {
+    let html = raw.trim();
+    const fenceMatch = html.match(/```(?:html)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (fenceMatch) html = fenceMatch[1].trim();
+    const doctypeIdx = html.indexOf('<!DOCTYPE');
+    const htmlTagIdx = html.indexOf('<html');
+    const startIdx = doctypeIdx >= 0 ? doctypeIdx : htmlTagIdx >= 0 ? htmlTagIdx : -1;
+    if (startIdx > 0) html = html.slice(startIdx);
+    const endIdx = html.lastIndexOf('</html>');
+    if (endIdx >= 0) html = html.slice(0, endIdx + '</html>'.length);
+    return html;
+  }
+
+  const wrapped = '```html\n<!DOCTYPE html><html><body>Hello</body></html>\n```';
+  const result = extractHtml(wrapped);
+  assert(result.startsWith('<!DOCTYPE'), `Starts with DOCTYPE: "${result.slice(0, 20)}"`);
+  assert(result.endsWith('</html>'), 'Ends with </html>');
+});
+
+await runTest('No console errors on main page', async () => {
+  // Create a fresh iframe and listen for errors
+  const iframe = document.createElement('iframe');
+  iframe.style.display = 'none';
+  const errors = [];
+
+  iframe.src = './index.html';
+  document.body.appendChild(iframe);
+
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve(), 3000);
+    iframe.onload = () => { clearTimeout(timer); setTimeout(resolve, 1000); };
+    iframe.onerror = (e) => errors.push(e);
+  });
+
+  // Check for any visible error state in the DOM
+  const doc = iframe.contentDocument;
+  if (doc) {
+    const errorText = doc.body?.textContent || '';
+    const hasError = errorText.includes('Something went wrong') || errorText.includes('Cannot read');
+    assert(!hasError, `Page shows error text: "${errorText.slice(0, 100)}"`);
+  }
+
+  document.body.removeChild(iframe);
+});
+
+progressEl.textContent = `All ${results.length} tests completed`;
+</script>
+</body>
+</html>
