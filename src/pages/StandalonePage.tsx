@@ -221,7 +221,9 @@ function updateManifest(name: string, icon: string, description: string) {
     short_name: name.slice(0, 12),
     description: description.slice(0, 100),
     start_url: window.location.href,
+    scope: window.location.origin + '/',
     display: 'standalone',
+    orientation: 'portrait' as const,
     background_color: '#0f172a',
     theme_color: '#6366f1',
     icons: [
