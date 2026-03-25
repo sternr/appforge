@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { getAppCode, getApp } from '../db/database.js';
 import { useInstallStore } from '../stores/installStore.js';
 
@@ -14,6 +14,7 @@ import { useInstallStore } from '../stores/installStore.js';
  */
 export default function StandalonePage() {
   const { appId } = useParams<{ appId: string }>();
+  const navigate = useNavigate();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const blobUrlRef = useRef<string | null>(null);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -120,22 +121,10 @@ export default function StandalonePage() {
             @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
           `}</style>
 
-          {/* Close button */}
-          <button
-            onClick={() => setShowBanner(false)}
-            style={{
-              position: 'absolute', top: '8px', right: '12px',
-              background: 'none', border: 'none', color: '#94a3b8', fontSize: '20px',
-              cursor: 'pointer', padding: '4px',
-            }}
-          >
-            ✕
-          </button>
-
           {/* App info */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
             {appIcon && <span style={{ fontSize: '32px' }}>{appIcon}</span>}
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ color: '#f8fafc', fontWeight: 600, fontSize: '16px' }}>
                 Install {appName}
               </div>
@@ -148,35 +137,59 @@ export default function StandalonePage() {
           {/* Install action */}
           {deferredPrompt ? (
             /* Native install prompt available */
-            <button
-              onClick={handleNativeInstall}
-              style={{
-                width: '100%', padding: '12px', borderRadius: '12px',
-                background: '#6366f1', color: 'white', border: 'none',
-                fontSize: '15px', fontWeight: 600, cursor: 'pointer',
-              }}
-            >
-              Install App
-            </button>
-          ) : isIOS ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#e2e8f0', fontSize: '14px' }}>
-              <span>Tap</span>
-              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', background: 'rgba(99,102,241,0.2)', borderRadius: '6px' }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2">
-                  <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" strokeLinecap="round" strokeLinejoin="round"/>
-                  <polyline points="16 6 12 2 8 6" strokeLinecap="round" strokeLinejoin="round"/>
-                  <line x1="12" y1="2" x2="12" y2="15" strokeLinecap="round"/>
-                </svg>
-              </span>
-              <span>then <strong>"Add to Home Screen"</strong></span>
-            </div>
-          ) : isAndroid ? (
-            <div style={{ color: '#e2e8f0', fontSize: '14px' }}>
-              Tap <strong>⋮</strong> (menu) then <strong>"Add to Home screen"</strong>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => navigate('/')}
+                style={{
+                  flex: '0 0 auto', padding: '12px 20px', borderRadius: '12px',
+                  background: 'rgba(148,163,184,0.15)', color: '#94a3b8', border: '1px solid rgba(148,163,184,0.2)',
+                  fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                Back
+              </button>
+              <button
+                onClick={handleNativeInstall}
+                style={{
+                  flex: 1, padding: '12px', borderRadius: '12px',
+                  background: '#6366f1', color: 'white', border: 'none',
+                  fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                Install App
+              </button>
             </div>
           ) : (
-            <div style={{ color: '#e2e8f0', fontSize: '14px' }}>
-              Use your browser menu to <strong>"Install app"</strong> or <strong>"Create shortcut"</strong>
+            <div>
+              <div style={{ color: '#e2e8f0', fontSize: '14px', marginBottom: '12px' }}>
+                {isIOS ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>Tap</span>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px', background: 'rgba(99,102,241,0.2)', borderRadius: '6px' }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366f1" strokeWidth="2">
+                        <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" strokeLinecap="round" strokeLinejoin="round"/>
+                        <polyline points="16 6 12 2 8 6" strokeLinecap="round" strokeLinejoin="round"/>
+                        <line x1="12" y1="2" x2="12" y2="15" strokeLinecap="round"/>
+                      </svg>
+                    </span>
+                    <span>then <strong>"Add to Home Screen"</strong></span>
+                  </span>
+                ) : isAndroid ? (
+                  <span>Tap <strong>⋮</strong> (menu) then <strong>"Add to Home screen"</strong></span>
+                ) : (
+                  <span>Use your browser menu to <strong>"Install app"</strong> or <strong>"Create shortcut"</strong></span>
+                )}
+              </div>
+              <button
+                onClick={() => navigate('/')}
+                style={{
+                  width: '100%', padding: '12px', borderRadius: '12px',
+                  background: 'rgba(148,163,184,0.15)', color: '#e2e8f0', border: '1px solid rgba(148,163,184,0.2)',
+                  fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+                }}
+              >
+                Back to AppForge
+              </button>
             </div>
           )}
         </div>

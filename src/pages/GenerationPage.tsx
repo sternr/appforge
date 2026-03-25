@@ -179,11 +179,9 @@ export default function GenerationPage() {
         toast('App installed!', 'success');
       }
     } else if (currentApp) {
-      // No native prompt — open standalone page for manual add-to-homescreen
-      const baseUrl = window.location.href.split('#')[0];
-      window.open(`${baseUrl}#/standalone/${appId}`, '_blank', 'noopener');
-      await appStore.updateApp({ ...currentApp, installedOnHomescreen: true, updatedAt: Date.now() });
-      toast('Opened standalone page — use browser menu to install', 'info');
+      // No native prompt — navigate to standalone page for manual add-to-homescreen
+      navigate(`/standalone/${appId}`);
+      return; // Don't navigate to home
     }
     navigate('/', { replace: true });
   };

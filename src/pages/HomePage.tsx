@@ -42,13 +42,9 @@ export default function HomePage() {
         toast('Install cancelled', 'info');
       }
     } else {
-      // No native prompt — open standalone page for manual "Add to Home Screen"
-      const baseUrl = window.location.href.split('#')[0];
-      const standaloneUrl = `${baseUrl}#/standalone/${app.id}`;
-      window.open(standaloneUrl, '_blank', 'noopener');
-      await updateApp({ ...app, installedOnHomescreen: true, updatedAt: Date.now() });
+      // No native prompt — navigate to standalone page for manual "Add to Home Screen"
       setSelectedApp(null);
-      setShowInstallGuide(true);
+      navigate(`/standalone/${app.id}`);
     }
   };
 
